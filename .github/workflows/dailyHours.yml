@@ -1,0 +1,55 @@
+name: Daily Hours Sync
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 8 PM CST
+  workflow_dispatch:
+
+jobs:
+  run-daily-hours:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Debug secrets
+        run: |
+          echo "UTIL_DB_NAME length: ${#UTIL_DB_NAME}"
+          echo "UTIL_DB_USER length: ${#UTIL_DB_USER}"
+          echo "UTIL_DB_PASSWORD length: ${#UTIL_DB_PASSWORD}"
+          echo "UTIL_DB_HOST length: ${#UTIL_DB_HOST}"
+          echo "UTIL_DB_PORT length: ${#UTIL_DB_PORT}"
+          echo "TIMESHEETS_API_KEY length: ${#TIMESHEETS_API_KEY}"
+          echo "TIMESHEETS_API_TOKEN length: ${#TIMESHEETS_API_TOKEN}"
+        shell: bash
+        env:
+          UTIL_DB_NAME: ${{ secrets.UTIL_DB_NAME }}
+          UTIL_DB_USER: ${{ secrets.UTIL_DB_USER }}
+          UTIL_DB_PASSWORD: ${{ secrets.UTIL_DB_PASSWORD }}
+          UTIL_DB_HOST: ${{ secrets.UTIL_DB_HOST }}
+          UTIL_DB_PORT: ${{ secrets.UTIL_DB_PORT }}
+          TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
+          TIMESHEETS_API_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
+
+      - name: Run dailyHoursProj.py
+        env:
+         
+          
+          SUPABASE_PASSWORD: ${{ secrets.UTIL_DB_PASSWORD }}
+          
+         
+          TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
+          TIMESHEETS_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
+        run: |
+          python etl/dailyHoursProj.py

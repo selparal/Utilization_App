@@ -197,11 +197,6 @@ The dashboard provides:
   - Date range  
 - Tables and charts summarizing hours and utilization trends  
 
-You can add screenshots here:
-
-```markdown
-![Dashboard Screenshot](docs/images/dashboard.png)
-```
 
 ---
 
@@ -244,15 +239,4 @@ env:
 
 ---
 
- 
 
----
-
-If you want, I can help you add:
-
-- badges (build passing, Python version, etc.)  
-- a diagram of the architecture  
-- a section for onboarding new engineers  
-- a “troubleshooting” section for common ETL failures  
-
-Just say the word.

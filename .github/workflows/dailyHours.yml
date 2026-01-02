@@ -50,6 +50,6 @@ jobs:
           
          
           TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
-          TIMESHEETS_API_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
+          TIMESHEETS_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
         run: |
           python etl/dailyHoursProj.py

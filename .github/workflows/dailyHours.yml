@@ -1,0 +1,37 @@
+name: Daily Hours Sync
+
+on:
+  schedule:
+    # Runs every day at 8 PM CST (2 AM UTC)
+    - cron: "0 2 * * *"
+  workflow_dispatch:  # allows manual runs
+
+jobs:
+  run-daily-hours:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run dailyHoursProj.py
+        env:
+          UTIL_DB_NAME: ${{ secrets.UTIL_DB_NAME }}
+          UTIL_DB_USER: ${{ secrets.UTIL_DB_USER }}
+          UTIL_DB_PASSWORD: ${{ secrets.UTIL_DB_PASSWORD }}
+          UTIL_DB_HOST: ${{ secrets.UTIL_DB_HOST }}
+          UTIL_DB_PORT: ${{ secrets.UTIL_DB_PORT }}
+          TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
+          TIMESHEETS_API_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
+        run: |
+          python etl/dailyHoursProj.py

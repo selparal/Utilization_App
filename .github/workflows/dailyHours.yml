@@ -46,7 +46,7 @@ jobs:
         env:
          
           
-          UTIL_DB_PASSWORD: ${{ secrets.UTIL_DB_PASSWORD }}
+          SUPABASE_PASSWORD: ${{ secrets.UTIL_DB_PASSWORD }}
           
          
           TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}

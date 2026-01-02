@@ -2,9 +2,8 @@ name: Daily Hours Sync
 
 on:
   schedule:
-    # Runs every day at 8 PM CST (2 AM UTC)
-    - cron: "0 2 * * *"
-  workflow_dispatch:  # allows manual runs
+    - cron: "0 2 * * *"   # 8 PM CST
+  workflow_dispatch:
 
 jobs:
   run-daily-hours:
@@ -24,13 +23,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run dailyHoursProj.py
+      - name: Debug secrets
+        run: |
+          echo "UTIL_DB_NAME length: ${#UTIL_DB_NAME}"
+          echo "UTIL_DB_USER length: ${#UTIL_DB_USER}"
+          echo "UTIL_DB_PASSWORD length: ${#UTIL_DB_PASSWORD}"
+          echo "UTIL_DB_HOST length: ${#UTIL_DB_HOST}"
+          echo "UTIL_DB_PORT length: ${#UTIL_DB_PORT}"
+          echo "TIMESHEETS_API_KEY length: ${#TIMESHEETS_API_KEY}"
+          echo "TIMESHEETS_API_TOKEN length: ${#TIMESHEETS_API_TOKEN}"
+        shell: bash
         env:
           UTIL_DB_NAME: ${{ secrets.UTIL_DB_NAME }}
           UTIL_DB_USER: ${{ secrets.UTIL_DB_USER }}
           UTIL_DB_PASSWORD: ${{ secrets.UTIL_DB_PASSWORD }}
           UTIL_DB_HOST: ${{ secrets.UTIL_DB_HOST }}
           UTIL_DB_PORT: ${{ secrets.UTIL_DB_PORT }}
+          TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
+          TIMESHEETS_API_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
+
+      - name: Run dailyHoursProj.py
+        env:
+         
+          
+          UTIL_DB_PASSWORD: ${{ secrets.UTIL_DB_PASSWORD }}
+          
+         
           TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
           TIMESHEETS_API_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
         run: |

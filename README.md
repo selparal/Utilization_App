@@ -158,7 +158,7 @@ Create a `.env` file:
 
 ```ini
 TIMESHEETS_API_KEY=your_key_here
-TIMESHEETS_API_TOKEN=your_token_here
+TIMESHEETS_TOKEN=your_token_here
 SUPABASE_PASSWORD=your_supabase_password_here
 ```
 
@@ -166,7 +166,7 @@ The ETL reads them via:
 
 ```python
 os.getenv("TIMESHEETS_API_KEY")
-os.getenv("TIMESHEETS_API_TOKEN")
+os.getenv("TIMESHEETS_TOKEN")
 os.getenv("SUPABASE_PASSWORD")
 ```
 

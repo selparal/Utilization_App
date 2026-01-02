@@ -1,121 +1,111 @@
-Utilization App
-The Utilization App is an end‑to‑end workflow for tracking employee utilization based on Timesheets.com  data. It:
 
-pulls daily, employee‑level hours from the Timesheets public API
+# Utilization App
 
-writes normalized records into a Supabase Postgres database
+The **Utilization App** is an end‑to‑end workflow for transforming Timesheets.com activity into actionable utilization insights. It includes:
 
-surfaces weekly utilization metrics through a Streamlit web app
+- A **daily ETL pipeline** that extracts employee project hours from the Timesheets API and loads them into Supabase Postgres  
+- A **Streamlit dashboard** that visualizes weekly utilization, billable hours, and project/customer mix  
+- A **GitHub Actions workflow** that automates the ETL on a daily schedule  
 
-This repo contains both the ETL job (run on a schedule via GitHub Actions) and the interactive dashboard used by the business.
+This repository contains all components required to run the system locally or in CI.
 
-Architecture overview
-High‑level flow:
+---
 
-Timesheets API → ETL (Python)
+##  Architecture Overview
 
-A scheduled job (etl/dailyHoursProj.py) calls the Timesheets public API.
+### High‑level flow
 
-It retrieves project‑level daily hours for each employee.
+1. **Timesheets API → ETL (Python)**  
+   - Fetches customers, projects, and detailed employee time records  
+   - Cleans and normalizes the data  
+   - Computes billable vs non‑billable hours  
 
-Records are cleaned, normalized, and transformed into an “employee hours” dataset.
+2. **ETL → Supabase Postgres**  
+   - Inserts or updates rows in the `employee_hours` table  
+   - Uses `record_id` as a natural key to avoid duplicates  
 
-ETL → Supabase Postgres
+3. **Supabase → Streamlit App**  
+   - Queries the database  
+   - Aggregates hours into weekly utilization metrics  
+   - Provides filters and interactive views  
 
-The ETL writes/upserts rows into a Supabase Postgres table (employee_hours).
+4. **GitHub Actions → Automation**  
+   - Runs the ETL daily  
+   - Injects API keys and DB credentials via GitHub Secrets  
 
-Existing records are updated based on record_id to avoid duplicates.
+---
 
-Supabase → Streamlit app
+##  Repository Structure
 
-The Streamlit app (e.g. app/homePage.py) queries employee_hours.
-
-It aggregates data into weekly utilization (hours / 40) per employee / team / time period.
-
-Users can filter by date range, employee, project/customer, etc.
-
-GitHub Actions → automation
-
-A workflow (.github/workflows/dailyHours.yml) runs dailyHoursProj.py daily.
-
-The job uses API and DB credentials injected via GitHub Secrets.
-
-Repository structure
-Adjust the file names/paths if your repo differs.
-
-text
+```
 Utilization_App/
 ├─ app/
-│  ├─ homePage.py         # Streamlit entry point
+│  ├─ homePage.py          # Streamlit dashboard entry point
 │  ├─ utils/
-│  │  ├─ db.py            # DB connection/query utilities
+│  │  ├─ db.py             # Database connection/query helpers
 │  │  └─ ...
 ├─ etl/
-│  ├─ dailyHoursProj.py   # Timesheets → Supabase ETL job
+│  ├─ dailyHoursProj.py    # Timesheets → Supabase ETL script
 │  └─ ...
 ├─ .github/
 │  └─ workflows/
-│     └─ dailyHours.yml   # GitHub Actions workflow to run ETL daily
+│     └─ dailyHours.yml    # GitHub Actions workflow
 ├─ requirements.txt
 ├─ README.md
 └─ ...
-Data model
-Source: Timesheets.com
-The ETL pulls from:
+```
 
-Customer items API:
-https://secure.timesheets.com/api/public/v1/items/customer
+---
 
-Project items API:
-https://secure.timesheets.com/api/public/v1/items/project
+##  Data Model
 
-Project customizable report API:
-https://secure.timesheets.com/api/public/v1/report/project/customizable
+### Timesheets.com (Source)
 
-Authentication is done via headers:
+APIs used:
 
-python
+- **Customers**  
+  `GET https://secure.timesheets.com/api/public/v1/items/customer`
+
+- **Projects**  
+  `GET https://secure.timesheets.com/api/public/v1/items/project`
+
+- **Customizable Project Report**  
+  `POST https://secure.timesheets.com/api/public/v1/report/project/customizable`
+
+Authentication headers:
+
+```python
 headers = {
     "accept": "application/json",
-    "apikey": API_KEY,                 # TIMESHEETS_API_KEY
-    "x-ts-authorization": API_TOKEN,   # TIMESHEETS_API_TOKEN
+    "apikey": API_KEY,
+    "x-ts-authorization": API_TOKEN,
 }
-The ETL filters out internal/non‑billable customers and projects depending on the use case, e.g.:
+```
 
-excludes customers with name "Internal" or "Choose Customer"
+Filtering logic:
 
-optionally excludes projects with name "Client Non-billable Hours"
+- Excludes customers named `"Internal"` or `"Choose Customer"`
+- Optionally excludes `"Client Non-billable Hours"` projects
 
-Target: Supabase Postgres
-The ETL writes into an employee_hours table with columns like:
+### Supabase Postgres (Target)
 
-user_id
+The ETL writes into `employee_hours` with fields such as:
 
-employee
+- `user_id`
+- `employee`
+- `customer_id`
+- `customer_name`
+- `project_id`
+- `project_name`
+- `hours`
+- `billable_hours`
+- `work_date`
+- `billable_flag`
+- `record_id` (unique)
 
-customer_id
+Upsert logic:
 
-customer_name
-
-project_id
-
-project_name
-
-hours
-
-billable_hours
-
-work_date (timestamp)
-
-billable_flag
-
-record_id (unique per Timesheets record, used for upserts)
-
-Upsert logic (simplified):
-
-sql
-INSERT INTO employee_hours (...)
-VALUES (...)
+```sql
 ON CONFLICT (record_id) DO UPDATE SET
   user_id        = EXCLUDED.user_id,
   employee       = EXCLUDED.employee,
@@ -127,204 +117,142 @@ ON CONFLICT (record_id) DO UPDATE SET
   billable_hours = EXCLUDED.billable_hours,
   work_date      = EXCLUDED.work_date,
   billable_flag  = EXCLUDED.billable_flag;
-You can add the actual DDL as a section if you want (CREATE TABLE employee_hours (...)).
+```
 
-Local development
-1. Clone the repo
-bash
+---
+
+##  Local Development
+
+### 1. Clone the repo
+
+```bash
 git clone https://github.com/<your-username>/Utilization_App.git
 cd Utilization_App
-2. Create and activate a virtual environment
-bash
+```
+
+### 2. Create a virtual environment
+
+```bash
 python -m venv venv
-# Windows (PowerShell)
+```
+
+Activate it:
+
+```bash
+# Windows
 venv\Scripts\activate
+
 # macOS/Linux
 source venv/bin/activate
-3. Install dependencies
-bash
-pip install --upgrade pip
+```
+
+### 3. Install dependencies
+
+```bash
 pip install -r requirements.txt
-4. Environment variables
-The project relies on environment variables for:
+```
 
-Timesheets API authentication
+### 4. Environment variables
 
-Supabase Postgres password
+Create a `.env` file:
 
-Locally, you can use a .env file in the repo root (and python-dotenv) or system/user env vars.
+```ini
+TIMESHEETS_API_KEY=your_key_here
+TIMESHEETS_API_TOKEN=your_token_here
+SUPABASE_PASSWORD=your_supabase_password_here
+```
 
-Example .env:
+The ETL reads them via:
 
-ini
-# Timesheets API
-TIMESHEETS_API_KEY=your_timesheets_api_key_here
-TIMESHEETS_API_TOKEN=your_timesheets_api_token_here
+```python
+os.getenv("TIMESHEETS_API_KEY")
+os.getenv("TIMESHEETS_API_TOKEN")
+os.getenv("SUPABASE_PASSWORD")
+```
 
-# Supabase
-SUPABASE_PASSWORD=your_supabase_db_password_here
-In dailyHoursProj.py, these are read via:
+### 5. Run the ETL locally
 
-python
-API_KEY = os.getenv("TIMESHEETS_API_KEY")
-API_TOKEN = os.getenv("TIMESHEETS_API_TOKEN")
-SUPABASE_PASSWORD = os.getenv("SUPABASE_PASSWORD")
-If you’re using load_dotenv(), mention where it’s called.
-
-5. Running the ETL locally
-From the etl directory (or repo root, depending on your imports):
-
-bash
-# From repo root
+```bash
 python etl/dailyHoursProj.py
-The script will:
+```
 
-Fetch customer and project metadata.
+### 6. Run the Streamlit dashboard
 
-Identify billable customers/projects.
-
-Loop over a date range (last N days).
-
-Call the Timesheets report endpoint per day.
-
-Insert/upsert rows into employee_hours.
-
-You’ll see log output like:
-
-text
-Fetching 01/02/2026...
-Inserted 25 employee project rows for 01/02/2026.
-Streamlit app
-Running the app locally
-From repo root (or app/ if that’s how you’ve structured imports):
-
-bash
+```bash
 streamlit run app/homePage.py
-This will:
+```
 
-start a local server (default at http://localhost:8501)
+---
 
-open your browser with the utilization dashboard
+##  Streamlit Dashboard
 
-What the app shows
-Customize this to match your actual UI, but generally:
+The dashboard provides:
 
-Filters: date range, employee, customer, project, billable/all hours
+- Weekly utilization % (hours / 40)  
+- Billable vs non‑billable breakdown  
+- Filters for:
+  - Employee  
+  - Customer  
+  - Project  
+  - Date range  
+- Tables and charts summarizing hours and utilization trends  
 
-KPIs: total hours, total billable hours, utilization % (billable / 40 per week), maybe by person/team
+You can add screenshots here:
 
-Tables/Charts:
+```markdown
+![Dashboard Screenshot](docs/images/dashboard.png)
+```
 
-weekly utilization by employee
+---
 
-project mix (which clients/engagements are driving hours)
+##  GitHub Actions: Automated Daily ETL
 
-time series view of billable vs non‑billable
+The workflow at `.github/workflows/dailyHours.yml`:
 
-You can embed screenshots here, for example:
+- Runs daily at 8 PM CST (2 AM UTC)
+- Installs dependencies
+- Injects secrets
+- Executes the ETL script
 
-markdown
-![Utilization dashboard screenshot](./docs/images/utilization_dashboard.png)
-GitHub Actions: daily ETL
-The repo includes a workflow at .github/workflows/dailyHours.yml that runs the ETL on a schedule.
+### Required GitHub Secrets
 
-Workflow summary
-Triggers:
+Add these under:
 
-daily at a specified UTC time (mapped to a US time zone)
+**Repo → Settings → Secrets and variables → Actions**
 
-manually via the Actions tab (workflow_dispatch)
+- `TIMESHEETS_API_KEY`
+- `TIMESHEETS_API_TOKEN`
+- `SUPABASE_PASSWORD`
 
-Runner: ubuntu-latest
+### Workflow excerpt
 
-Steps:
+```yaml
+env:
+  TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
+  TIMESHEETS_API_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
+  SUPABASE_PASSWORD: ${{ secrets.SUPABASE_PASSWORD }}
+```
 
-Check out the repo
+---
 
-Set up Python
+##  Error Handling & Rate Limiting
 
-Install dependencies from requirements.txt
+- Retries Timesheets API calls when rate‑limited  
+- Logs non‑200 responses  
+- Skips days with no data  
+- Upserts records to avoid duplicates  
 
-Export secrets into env vars
+---
 
-Run etl/dailyHoursProj.py
+ 
 
-Example workflow (simplified):
+---
 
-yaml
-name: Daily Hours Sync
+If you want, I can help you add:
 
-on:
-  schedule:
-    - cron: "0 2 * * *"   # 2:00 AM UTC (8 PM CST)
-  workflow_dispatch:
+- badges (build passing, Python version, etc.)  
+- a diagram of the architecture  
+- a section for onboarding new engineers  
+- a “troubleshooting” section for common ETL failures  
 
-jobs:
-  run-daily-hours:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run dailyHoursProj.py
-        env:
-          TIMESHEETS_API_KEY: ${{ secrets.TIMESHEETS_API_KEY }}
-          TIMESHEETS_API_TOKEN: ${{ secrets.TIMESHEETS_API_TOKEN }}
-          SUPABASE_PASSWORD: ${{ secrets.SUPABASE_PASSWORD }}
-        run: |
-          python etl/dailyHoursProj.py
-Required GitHub Secrets
-Set these at:
-
-Repo → Settings → Secrets and variables → Actions
-
-TIMESHEETS_API_KEY
-
-TIMESHEETS_API_TOKEN
-
-SUPABASE_PASSWORD
-
-If you move more DB credentials/env into secrets, list them here too.
-
-Error handling and rate limiting
-The ETL includes basic error handling and rate‑limit safety:
-
-Rate limiting:
-
-safe_post() retries on rate‑limit responses and sleeps between attempts.
-
-HTTP errors:
-
-Non‑200 responses from Timesheets are logged with the full response body.
-
-Empty data:
-
-If a date returns no rows, the script prints "No data found for <date>." and continues.
-
-You can expand this section if you add logging to a separate table, Slack alerts, etc.
-
-Development notes and conventions
-Python version: currently targeting Python 3.11 (matching the GitHub Actions runner).
-
-Dependency management:
-
-requirements.txt is generated from the venv using pip freeze > requirements.txt.
-
-Avoid OS‑specific dependencies (pywin32, etc.) so CI on Linux works.
-
-Environment strategy:
-
-Local: .env file or user environment variables
-
-CI: GitHub Actions secrets → env: block → os.getenv() in Python
+Just say the word.

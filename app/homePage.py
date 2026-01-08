@@ -5,6 +5,30 @@ import datetime
 import plotly.graph_objects as go
 
 current_year = 2025
+import streamlit as st
+from streamlit_msal import Msal
+
+st.set_page_config(page_title="Utilization App")
+
+# Azure AD App Registration
+client_id = "8b087482-9c26-4472-8d06-110de2fee88c"
+authority = "https://login.microsoftonline.com/4dcbd443-2dae-4065-b806-17d9c7781f58"
+
+# Authentication UI
+auth_data = Msal.initialize_ui(
+    client_id=client_id,
+    authority=authority,
+    scopes=[],  # Optional unless you need Graph API
+    connecting_label="Connecting",
+    disconnected_label="Disconnected",
+    sign_in_label="Sign in",
+    sign_out_label="Sign out"
+)
+
+# Block access until authenticated
+if not auth_data:
+    st.write("Authenticate to access protected content")
+    st.stop()
 
 
 # ---------------------------------------------------------
@@ -203,6 +227,7 @@ date_range = st.sidebar.date_input(
 )
 st.sidebar.button("Reset Filters", on_click=reset_filters)
 
+
 # ---------------------------------------------------------
 # Apply Filters
 # ---------------------------------------------------------
@@ -231,6 +256,8 @@ if start_date != min_date or end_date != max_date:
         (filtered["Work Date"] >= pd.to_datetime(start_date)) &
         (filtered["Work Date"] <= pd.to_datetime(end_date))
     ]
+
+
 # ---------------------------------------------------------
 # Display Raw Filtered Data
 # ---------------------------------------------------------
@@ -244,6 +271,7 @@ view_mode = st.radio(
 )
 
 
+
 ### START WORKING LOGIC ###
 
 # ---------------------------------------------------------
@@ -252,46 +280,119 @@ view_mode = st.radio(
 
 
 # ---------------------------------------------------------
-# Build Period Start + Period Label based on toggle
+# Build Period Start + Period Label + Aggregate (FIXED)
 # ---------------------------------------------------------
-if view_mode == "Weekly":
-    # Weekly period start
-    filtered["Period Start"] = filtered["Work Date"] - pd.to_timedelta(
-        filtered["Work Date"].dt.weekday, unit="D"
-    )
-    filtered["Period Label"] = filtered["Period Start"].dt.strftime("Week of %b %d, %Y")
 
-else:  # Monthly
-    # IMPORTANT: Monthly must start from raw Work Date rows
-    filtered["Period Start"] = filtered["Work Date"].values.astype("datetime64[M]")
-    filtered["Period Label"] = filtered["Period Start"].dt.strftime("%b %Y")
-
-
-# ---------------------------------------------------------
-# Apply year filter based on Period Start
-# ---------------------------------------------------------
-if selected_year != "All":
-    filtered = filtered[filtered["Period Start"].dt.year == selected_year]
-
-# ---------------------------------------------------------
-# Aggregate by period (correct for both weekly & monthly)
-# ---------------------------------------------------------
-period_df = (
-    filtered.groupby(["User ID", "Employee", "Period Start"], as_index=False)
-    .agg({"Hours": "sum", "Billable Hours": "sum"})
+# Merge hire dates once
+filtered = filtered.merge(
+    emp_df[["User ID", "hire_date"]],
+    on="User ID",
+    how="left"
 )
 
-# Merge hire dates
-period_df = period_df.merge(emp_df, on="User ID", how="left")
-period_df = period_df[~period_df["hire_date"].isna()]
+# Remove pre-hire work rows
+filtered = filtered[filtered["Work Date"] >= filtered["hire_date"]]
 
-# ---------------------------------------------------------
-# Add Period Label AFTER aggregation
-# ---------------------------------------------------------
 if view_mode == "Weekly":
-    period_df["Period Label"] = period_df["Period Start"].dt.strftime("Week of %b %d, %Y")
+
+    # ------------------------
+    # WEEKLY (unchanged logic)
+    # ------------------------
+    filtered["Period Start"] = (
+        filtered["Work Date"]
+        - pd.to_timedelta(filtered["Work Date"].dt.weekday, unit="D")
+    )
+
+    if selected_year != "All":
+        filtered = filtered[filtered["Period Start"].dt.year == selected_year]
+
+    period_df = (
+        filtered.groupby(
+            ["User ID", "Employee", "Period Start"],
+            as_index=False
+        )
+        .agg({"Hours": "sum", "Billable Hours": "sum"})
+    )
+
+    period_df["Period Label"] = period_df["Period Start"].dt.strftime(
+    "Week of %b %d, %Y"
+)
+
+    period_df = period_df.merge(
+    emp_df[["User ID", "hire_date", "jobtitle"]],
+    on="User ID",
+    how="left"
+)
+
+
+
 else:
+
+    # ------------------------
+    # MONTHLY (FIXED)
+    # ------------------------
+
+    # Assign month start to raw rows
+    filtered["Period Start"] = filtered["Work Date"].values.astype("datetime64[M]")
+
+    if selected_year != "All":
+        filtered = filtered[filtered["Period Start"].dt.year == selected_year]
+
+    # Aggregate actual worked hours per month
+    monthly_hours = (
+        filtered.groupby(
+            ["User ID", "Employee", "Period Start"],
+            as_index=False
+        )
+        .agg({"Hours": "sum", "Billable Hours": "sum"})
+    )
+
+    # Build FULL month range per employee starting at hire month
+    all_periods = []
+
+    for _, row in emp_df.iterrows():
+        uid = row["User ID"]
+        hire = row["hire_date"]
+
+        emp_rows = monthly_hours[monthly_hours["User ID"] == uid]
+        if emp_rows.empty:
+            continue
+
+        start = emp_rows["Period Start"].min()
+        end = emp_rows["Period Start"].max()
+
+
+        months = pd.date_range(start, end, freq="MS")
+        for m in months:
+            all_periods.append({
+                "User ID": uid,
+                "Employee": emp_rows["Employee"].iloc[0],
+                "Period Start": m
+            })
+
+    all_periods_df = pd.DataFrame(all_periods)
+
+    # Merge hours into full month grid
+    period_df = all_periods_df.merge(
+        monthly_hours,
+        on=["User ID", "Employee", "Period Start"],
+        how="left"
+    )
+
+    period_df["Hours"] = period_df["Hours"].fillna(0)
+    period_df["Billable Hours"] = period_df["Billable Hours"].fillna(0)
+
     period_df["Period Label"] = period_df["Period Start"].dt.strftime("%b %Y")
+
+    # ✅ ADD THIS
+    period_df = period_df.merge(
+        emp_df[["User ID", "hire_date", "jobtitle"]],
+        on="User ID",
+        how="left"
+    )
+
+
+
 
 # ---------------------------------------------------------
 # Pivot tables
@@ -321,24 +422,31 @@ billable_pivot = period_df.pivot_table(
 # ---------------------------------------------------------
 def apply_conditional_formatting(row):
     formatted = []
-    is_avg_row = (row.name[0] == "Average")
+
+    is_avg_row = str(row.name).lower().startswith("employee average")
 
     for col, val in row.items():
+
+        # Apply formatting to YTD column AND bottom average row
         if col == "YTD" or is_avg_row:
             if isinstance(val, str) and val.endswith("%"):
-                num = float(val[:-1])
+                num = float(val.rstrip("%"))
+
                 if num < 75:
                     color = 'rgba(255, 0, 0, 0.4)'
                 elif num < 85:
                     color = 'rgba(255, 255, 0, 0.4)'
                 else:
                     color = 'rgba(0, 128, 0, 0.4)'
+
                 formatted.append(f'background-color: {color}')
             else:
                 formatted.append('')
         else:
             formatted.append('')
+
     return formatted
+
 
 # ---------------------------------------------------------
 # Compute period capacity (weekly or monthly)
@@ -379,14 +487,24 @@ util_pct = (hours_pivot / period_capacity * 100)
 billable_util_pct = (billable_pivot / period_capacity * 100)
 
 # ---------------------------------------------------------
-# Mask pre-hire periods
+# Mask pre-hire periods (FIXED for partial months)
 # ---------------------------------------------------------
+
 hire_dates = period_df.groupby("Employee")["hire_date"].first()
 hire_dates = hire_dates.reindex(util_pct.index)
 
 for i, col in enumerate(util_pct.columns):
-    util_pct.loc[hire_dates > period_starts[i], col] = np.nan
-    billable_util_pct.loc[hire_dates > period_starts[i], col] = np.nan
+
+    if view_mode == "Weekly":
+        period_end = period_starts[i] + pd.Timedelta(days=6)
+    else:  # Monthly
+        period_end = period_starts[i] + pd.offsets.MonthEnd(0)
+
+    mask = hire_dates > period_end
+
+    util_pct.loc[mask, col] = np.nan
+    billable_util_pct.loc[mask, col] = np.nan
+
 
 # ---------------------------------------------------------
 # Compute YTD capacity — SAME LOGIC AS PERIODS
@@ -462,53 +580,170 @@ st.write(f"### {view_mode} Billable Utilization % by Employee")
 styled_billable = billable_util_pivot.style.apply(apply_conditional_formatting, axis=1)
 st.dataframe(styled_billable, use_container_width=True)
 
-### END WORKING LOGIC ###
-
-
+st.markdown(
+    """
+    <hr style="border: 1px solid #779CCD; margin-top: 30px; margin-bottom: 30px;">
+    """,
+    unsafe_allow_html=True
+)
 
 ### PTO Planner Starts Here ###
 # ---------------------------------------------------------
-# Employee Job Title + YTD Utilization %
+# PTO Planner (Based on YTD Utilization %)
 # ---------------------------------------------------------
 
-# YTD utilization as a clean dataframe
+# Clean YTD utilization
 ytd_util_df = (
     ytd_util_emp
     .reset_index()
-    .rename(columns={"Employee": "Employee", 0: "YTD Utilization"})
+    .rename(columns={0: "YTD Utilization"})
 )
 
-# Employee + job title (unique per employee)
+# Employee job titles
 emp_job_df = (
     period_df[["Employee", "jobtitle"]]
     .drop_duplicates()
 )
 
-# Merge safely
-ytd_job_util = emp_job_df.merge(
-    ytd_util_df,
-    on="Employee",
-    how="left"
+# Merge utilization + job title + capacity
+pto_df = (
+    emp_job_df
+    .merge(ytd_util_df, on="Employee", how="left")
+    .merge(capacity_emp.reset_index().rename(columns={"Workdays": "YTD Capacity"}), 
+           on="Employee", how="left")
 )
+# ---------------------------------------------------------
+# PTO policy logic (defines targets & PTO allocation)
+# ---------------------------------------------------------
+def pto_policy(job_title):
+    jt = job_title.lower()
+    if jt in ["consultant", "associate consultant", "senior consultant"]:
+        return 90.0, 0.10   # 90% util target, 10% PTO
+    else:
+        return 85.0, 0.15   # 85% util target, 15% PTO
 
-# Format %
-ytd_job_util["YTD Utilization %"] = ytd_job_util["YTD Utilization"].apply(
-    lambda x: f"{x:.1f}%" if pd.notna(x) else "–"
-)
-
-# Final display
-ytd_job_util_display = (
-    ytd_job_util
-    .rename(columns={
-        "Employee": "Employee Name",
-        "jobtitle": "Job Title"
-    })
-    [["Employee Name", "Job Title", "YTD Utilization %"]]
-    .sort_values("Employee Name")
+pto_df[["Util Target %", "PTO %"]] = pto_df["jobtitle"].apply(
+    lambda x: pd.Series(pto_policy(x))
 )
 
 # ---------------------------------------------------------
-# Display
+# Correct PTO calculation (earned vs deficit)
 # ---------------------------------------------------------
-st.write("### Employee YTD Utilization by Job Title")
-st.dataframe(ytd_job_util_display, use_container_width=True)
+# ---------------------------------------------------------
+# PTO calculation with penalties for underperformance
+# ---------------------------------------------------------
+
+# Raw utilization delta (can be positive or negative)
+pto_df["Util Delta %"] = (
+    (pto_df["YTD Utilization"] - pto_df["Util Target %"]) / 100
+)
+
+# Earned PTO (only positive deltas)
+pto_df["Earned PTO Hours"] = (
+    (pto_df["Util Delta %"].clip(lower=0)) * pto_df["YTD Capacity"]
+)
+
+# PTO deficit (only negative deltas)
+pto_df["PTO Deficit Hours"] = (
+    (pto_df["Util Delta %"].clip(upper=0)) * pto_df["YTD Capacity"]
+)
+
+# PTO cap (max earned)
+pto_df["Max PTO Hours"] = (
+    pto_df["YTD Capacity"] * pto_df["PTO %"]
+)
+
+# Final PTO:
+#   - Positive PTO is capped
+#   - Negative PTO is allowed fully
+pto_df["PTO Hours"] = (
+    pto_df.apply(
+        lambda row: min(row["Earned PTO Hours"], row["Max PTO Hours"])
+        if row["Earned PTO Hours"] > 0
+        else row["PTO Deficit Hours"],
+        axis=1
+    )
+).round(1)
+
+
+
+
+# ---------------------------------------------------------
+# Employee selector
+# ---------------------------------------------------------
+selected_employee = st.selectbox(
+    "Select Employee",
+    sorted(pto_df["Employee"].unique())
+)
+
+emp_row = pto_df[pto_df["Employee"] == selected_employee].iloc[0]
+# Planned PTO input
+planned_pto = st.number_input(
+    "Planned PTO Hours (optional)",
+    min_value=0.0,
+    step=1.0,
+    format="%.1f"
+)
+
+# ---------------------------------------------
+# Recompute utilization including planned PTO
+# ---------------------------------------------
+
+# Convert YTD utilization % back to actual hours worked
+actual_hours = (emp_row["YTD Utilization"] / 100) * emp_row["YTD Capacity"]
+
+# Subtract planned PTO from actual hours
+adjusted_hours = max(actual_hours - planned_pto, 0)
+
+# Adjusted utilization %
+adjusted_util = (adjusted_hours / emp_row["YTD Capacity"]) * 100
+
+# Util delta vs target
+util_delta = (adjusted_util - emp_row["Util Target %"]) / 100
+
+# Earned PTO (positive only)
+earned_pto = max(util_delta, 0) * emp_row["YTD Capacity"]
+
+# PTO deficit (negative only)
+pto_deficit = min(util_delta, 0) * emp_row["YTD Capacity"]
+
+# PTO cap
+max_pto = emp_row["YTD Capacity"] * emp_row["PTO %"]
+
+# Final PTO (cap positive, allow negative)
+final_pto = min(earned_pto, max_pto) if earned_pto > 0 else pto_deficit
+final_pto = round(final_pto, 1)
+
+
+# ---------------------------------------------------------
+# Display PTO summary
+# ---------------------------------------------------------
+st.write(f"### PTO Summary for {selected_employee}")
+
+col1, col2, col3 = st.columns(3)
+
+col1.metric("Job Title", emp_row["jobtitle"])
+
+col2.metric(
+    "Adjusted Utilization",
+    f"{adjusted_util:.1f}%"
+)
+
+col3.metric(
+    "PTO Hours (YTD)",
+    f"{final_pto} hrs"
+)
+
+if final_pto < 0:
+    st.error("⚠️ Utilization below target — PTO deficit")
+elif final_pto > 0:
+    st.success("✔ PTO earned above target")
+else:
+    st.info("On target")
+
+
+
+st.caption(
+    f"PTO Policy: {emp_row['Util Target %']}% utilization target → "
+    f"{int(emp_row['PTO %'] * 100)}% PTO allocation"
+)

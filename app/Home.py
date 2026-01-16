@@ -14,25 +14,25 @@ from streamlit import column_config
 
 st.set_page_config(page_title="Utilization App")
 
-# Azure AD App Registration -> CHANGE THIS 
+# Azure AD App Registration
 client_id = "8b087482-9c26-4472-8d06-110de2fee88c"
 authority = "https://login.microsoftonline.com/4dcbd443-2dae-4065-b806-17d9c7781f58"
 
 # Authentication UI
-#auth_data = Msal.initialize_ui(
-    #client_id=client_id,
-    #authority=authority,
-   # scopes=[],  # Optional unless you need Graph API
-   # connecting_label="Connecting",
-    #disconnected_label="Disconnected",
-    #sign_in_label="Sign in",
-    #sign_out_label="Sign out"
-#)
+auth_data = Msal.initialize_ui(
+    client_id=client_id,
+    authority=authority,
+    scopes=[],  # Optional unless you need Graph API
+    connecting_label="Connecting",
+    disconnected_label="Disconnected",
+    sign_in_label="Sign in",
+    sign_out_label="Sign out"
+)
 
 # Block access until authenticated
-#if not auth_data:
-    #st.write("Authenticate to access protected content")
-   # st.stop()
+if not auth_data:
+    st.write("Authenticate to access protected content")
+    st.stop()
 
 
 # ---------------------------------------------------------
